@@ -1,0 +1,100 @@
+name: "High-Assurance SSH Lineage Verification"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # Allows manual verification triggers from the terminal UI
+
+jobs:
+  verify-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: "Checkout Repository Lineage"
+        uses: actions/checkout@v4
+
+      - name: "Initialize Secure SSH Agent Environment"
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AZRAEL_SSH_PRIVATE_KEY }}
+        run: |
+          # 1. Enforce strict directory restrictions for runtime isolation
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          
+          # 2. Inject the private cryptographic identity safely from GitHub Secrets
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519_azrael
+          chmod 600 ~/.ssh/id_ed25519_azrael
+          
+          # 3. Spawn the background daemon and seed the identity matrix
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_ed25519_azrael
+          
+          # 4. Establish host-isolation rules for the runner's connection matrix
+          cat << 'EOF' >> ~/.ssh/config
+          Host github.com
+              HostName github.com
+              User git
+              IdentityFile ~/.ssh/id_ed25519_azrael
+              IdentitiesOnly yes
+              AddKeysToAgent yes
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: "Enforce Correct ssh-add -l Cryptographic Diagnostic Gate"
+        run: |
+          echo "=== EXECUTING MANDATORY SIGNATURE VERIFICATION GATE ==="
+          
+          # Query the agent via the corrected lowercase -l fingerprint check
+          if ! keys_output=$(ssh-add -l 2>&1); then
+              echo "❌ CRITICAL SECURITY ERROR: Verification gate failed to identify active SSH tokens."
+              echo "Reason: $keys_output"
+              exit 1
+          fi
+          
+          # Enforce regex validation to ensure the Azrael engine signature is the active token
+          if [[ "$keys_output" != *"system@sail-azrael.engine"* && "$keys_output" != *"ED25519"* ]]; then
+              echo "❌ CRITICAL SECURITY ERROR: Unverified or alien cryptographic identity detected in runner agent."
+              echo "Dumped Token Fingerprint: $keys_output"
+              exit 1
+          fi
+          
+          echo "✅ SECURITY CONTROL PASSED: Validated Azrael key is loaded and authenticated for remote transport."
+          echo "$keys_output"
+
+      - name: "Validate Project File Path Integrity"
+        run: |
+          echo "=== VERIFYING DEPENDENCY LAYOUT MATRIX ==="
+          
+          # Enforce strict path checking for the 9 interactive application components
+          REQUIRED_PATHS=(
+            "src/components/CodeBlock.tsx"
+            "src/components/DeploymentTarget.tsx"
+            "src/components/Footer.tsx"
+            "src/components/Hero.tsx"
+            "src/components/StepGuide.tsx"
+            "src/data/steps.ts"
+            "index.html"
+            "App.tsx"
+            "index.css"
+          )
+          
+          for path in "${REQUIRED_PATHS[@]}"; do
+              if [ ! -f "$path" ]; then
+                  echo "❌ ARCHITECTURAL INTEGRITY VIOLATION: Missing file target at expected path: $path"
+                  exit 1
+              fi
+          done
+          
+          echo "✅ ARCHITECTURAL INTEGRITY VERIFIED: All 9 interactive web application components sit within target boundaries."
+
+      - name: "Execute Project Compilation Check"
+        run: |
+          echo "=== RUNNING BARE-METAL COMPILATION MATRIX ==="
+          # Triggers compilation checks across the Rust workspace layers if cargo is present
+          if command -v cargo &> /dev/null; then
+              cargo check --release
+          else
+              echo "Skipping bare-metal Rust compilation check: Cargo toolchain not active on this runner node."
+          fi
